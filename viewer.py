@@ -13,24 +13,23 @@ import cPickle
 from skimage.viewer import ImageViewer
 from matplotlib import pyplot as plt
 
-topic = sys.argv[1]
-print('Listening on topic: %s' % topic)
+subscribe_topic = sys.argv[1]
+print('Listening on topic: %s' % subscribe_topic)
 
 connection = pika.BlockingConnection(pika.ConnectionParameters(host='localhost'))
 channel = connection.channel()
 
-channel.exchange_declare(exchange=topic,
-                         exchange_type='direct')
+channel.exchange_declare(exchange=subscribe_topic,
+                         exchange_type='x-lvc')
 
-# result = channel.queue_declare(exclusive=True) # exclusive is required for LVC exchange to work
-# queue_name = result.method.queue
-queue_name = topic
+result = channel.queue_declare(exclusive=True, auto_delete=True) # exclusive is required for LVC exchange to work
+queue_name = result.method.queue
+# queue_name = subscribe_topic
 
-channel.queue_bind(exchange=topic,
+channel.queue_bind(exchange=subscribe_topic,
                    queue=queue_name,
-                   routing_key=topic)
+                   routing_key=subscribe_topic)
 
-print(' [*] Waiting for logs. To exit press CTRL+C')
 
 plt.ion()
 
@@ -48,12 +47,10 @@ def display_image(im):
 #   display_image(body)
 
 # LISTEN FOR NEW MESSAGES
-def callback(ch, method, properties, body):
+def callback(chan, method, properties, body):
   print("\n [x] ")
   display_image(body)
-  time.sleep(3)
-  ch.basic_ack(method.delivery_tag)
-  # channel.basic_ack(method.delivery_tag)
+  chan.basic_ack(method.delivery_tag)
   print(" [ack] ")
 
 
@@ -61,5 +58,6 @@ channel.basic_consume(callback,
                       queue=queue_name,
                       no_ack=False)
 
+print(' Waiting...')
 channel.start_consuming()
 

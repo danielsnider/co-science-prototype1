@@ -8,51 +8,40 @@ import skimage
 import time
 import requests
 
+import coslib
 
 from skimage.viewer import ImageViewer
 from matplotlib import pyplot as plt
 
 
-user = 'guest'
-password = 'guest'
 
 connection = pika.BlockingConnection(pika.ConnectionParameters(host='localhost'))
 
 channel = connection.channel()
 
-publish_topic = 'images-d'
+publish_topic = 'images'
 
 ex = channel.exchange_declare(exchange=publish_topic,
-                         exchange_type='direct')
-
-
-
-# channel.exchange_declare(exchange='images_fanout',
-#                          exchange_type='fanout')
-
-
-# channel.exchange_bind(destination='images_fanout',source=publish_topic) # error, e2e not supported for lvc exchange as source. https://github.com/rabbitmq/rabbitmq-lvc-exchange/issues/9
+                         exchange_type='x-lvc')
 
 channel.confirm_delivery()
 
 for filename in glob.iglob('./images/*'):
   print('%s' % filename)
-  while True:
-    queue_details_url = 'http://localhost:15672/api/queues/%2f/' + publish_topic
-    r = requests.get(queue_details_url,auth=(user,password))
-    queue = r.json()
-    q_len = queue['messages']
-    # q = channel.queue_declare(publish_topic)
-    # q_len = q.method.message_count
-    print('queue length: %s' % q_len)
-    if q_len == 0:
+  while True: # wait for queue to be short before publishing
+    queue_length = coslib.get_queued_message_count_on_exchange(publish_topic)
+    print('queue length: %s' % queue_length)
+    if queue_length == 0: # queue is short enough to publish
       break
     time.sleep(1)
 
   im = skimage.io.imread(filename)
-  conf = channel.basic_publish(exchange=publish_topic,
+  
+  while True: # keep trying to publish until message is confirmed by broker
+    message_confirmed = channel.basic_publish(exchange=publish_topic,
                         routing_key=publish_topic,
                         body=cPickle.dumps(im))
+    if message_confirmed:
+      break
+    time.sleep(1) # wait a second and try again
   print('published.')
-  print('confirmation received: %s' % conf)
-  # time.sleep(1)
